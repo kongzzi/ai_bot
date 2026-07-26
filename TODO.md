@@ -7,12 +7,12 @@
 
 ## Phase 0. 프로젝트 기준선 (하드웨어 불필요)
 
-- [ ] GitHub 저장소 생성 (모노레포)
-- [ ] 디렉터리 구조 생성 — `firmware/`, `services/voice-api/`, `deploy/`, `infrastructure/`, `docs/`
+- [x] GitHub 저장소 생성 (모노레포) — https://github.com/kongzzi/ai_bot
+- [ ] 디렉터리 구조 생성 — `services/voice-api/` ✓ / `firmware/`, `deploy/`, `infrastructure/`, `docs/`는 해당 Phase에서
 - [x] `.env.example` 작성
 - [x] `.gitignore` 작성 (`.env`, `.pio/`, 캐시 폴더 등)
 - [ ] PR 템플릿, CODEOWNERS, main 브랜치 보호 규칙 설정
-- [ ] 기획서를 `docs/PROJECT_PLAN.md`로 커밋
+- [x] 기획서 및 개발 문서 커밋 (PROJECT_PLAN.md, TODO.md, WORKLOG.md — 2026-07-26 초기 커밋 c2c16ac)
 
 ## Phase 1. 하드웨어 검증 ⏸ 보류 (납땜 재작업 후 진행)
 
