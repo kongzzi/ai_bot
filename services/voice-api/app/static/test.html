@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>voice-api 테스트 콘솔</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1e2128; --border: #2e323b;
+    --text: #d7dae0; --dim: #8b919c; --accent: #4da3ff; --rec: #ff5d5d; --ok: #58c882;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px; background: var(--bg); color: var(--text);
+    font-family: "SF Mono", Menlo, monospace; display: flex; justify-content: center;
+  }
+  main { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 16px; }
+  h1 { font-size: 15px; margin: 0; color: var(--dim); font-weight: 600; }
+
+  /* OLED 모사 상태 표시 */
+  #oled {
+    background: #000; border: 2px solid var(--border); border-radius: 8px;
+    padding: 20px; text-align: center; font-size: 26px; letter-spacing: 1px;
+    color: #9fd8ff; text-shadow: 0 0 8px rgba(90,170,255,.6); min-height: 72px;
+  }
+  #oled.error { color: #ff8080; text-shadow: 0 0 8px rgba(255,90,90,.6); }
+  #oled.listening { color: #ffb3b3; text-shadow: 0 0 10px rgba(255,90,90,.7); }
+
+  .row { display: flex; gap: 8px; }
+  input {
+    flex: 1; background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 8px 10px; font: inherit; font-size: 12px;
+  }
+  button {
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 8px 14px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+
+  #talk {
+    width: 100%; padding: 26px; font-size: 17px; font-weight: 700; border-radius: 12px;
+    background: #22304a; border: 1px solid #3a5580; color: #cfe3ff;
+    user-select: none; -webkit-user-select: none; touch-action: none;
+  }
+  #talk:disabled { opacity: .35; cursor: not-allowed; }
+  #talk.recording { background: #4a2222; border-color: #a04040; color: #ffd0d0; }
+
+  #log {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; height: 260px; overflow-y: auto; font-size: 12px; line-height: 1.7;
+  }
+  #log .t { color: var(--dim); margin-right: 6px; }
+  #log .user { color: var(--accent); }
+  #log .srv { color: var(--ok); }
+  #log .err { color: var(--rec); }
+  footer { color: var(--dim); font-size: 11px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>voice-api 테스트 콘솔 <span id="conn" style="float:right">● 미연결</span></h1>
+
+  <div id="oled">Booting</div>
+
+  <div class="row">
+    <input id="deviceId" value="device-001" placeholder="device_id">
+    <input id="token" value="dev-token-001" placeholder="token">
+    <button id="connectBtn">연결</button>
+  </div>
+
+  <button id="talk" disabled>🎙 누르고 있는 동안 녹음 (Push to Talk)</button>
+
+  <div class="row" id="recRow" style="display:none">
+    <button id="playRec">▶ 내 녹음 듣기</button>
+    <button id="saveRec">⬇ WAV 저장</button>
+  </div>
+
+  <div id="log"></div>
+  <footer>스페이스바를 눌러도 녹음됩니다 · 마이크 권한 필요 · localhost 전용 (외부 접속은 https 필요)</footer>
+</main>
+
+<script>
+const SAMPLE_RATE = 16000;
+const oled = document.getElementById("oled");
+const conn = document.getElementById("conn");
+const logEl = document.getElementById("log");
+const talkBtn = document.getElementById("talk");
+const connectBtn = document.getElementById("connectBtn");
+
+let ws = null;
+let audioCtx = null, mediaStream = null, processor = null, sourceNode = null;
+let recording = false, requestId = null, ttsChunks = [], sentBytes = 0, endSentAt = 0;
+let recChunks = []; // 서버로 보낸 것과 동일한 로컬 사본 (확인용)
+
+function log(cls, text) {
+  const line = document.createElement("div");
+  const time = new Date().toLocaleTimeString("ko-KR", { hour12: false });
+  line.innerHTML = `<span class="t">${time}</span><span class="${cls}"></span>`;
+  line.lastChild.textContent = text;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function setOled(text, cls = "") {
+  oled.textContent = text;
+  oled.className = cls;
+}
+
+function setReady(ready) {
+  talkBtn.disabled = !ready;
+  if (ready) setOled("Ready");
+}
+
+// ── WebSocket ──────────────────────────────────────────
+function connect() {
+  if (ws) ws.close();
+  const url = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/audio`;
+  ws = new WebSocket(url);
+  ws.binaryType = "arraybuffer";
+  setOled("Server...");
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({
+      type: "auth",
+      device_id: document.getElementById("deviceId").value.trim(),
+      token: document.getElementById("token").value.trim(),
+      protocol_version: "1.0",
+    }));
+  };
+  ws.onmessage = handleMessage;
+  ws.onclose = () => {
+    conn.textContent = "● 미연결";
+    conn.style.color = "";
+    setOled("Disconnected", "error");
+    talkBtn.disabled = true;
+    stopRecording(false);
+  };
+}
+
+function handleMessage(ev) {
+  if (ev.data instanceof ArrayBuffer) {
+    ttsChunks.push(ev.data);
+    return;
+  }
+  const msg = JSON.parse(ev.data);
+  switch (msg.type) {
+    case "auth_ok":
+      conn.textContent = "● 연결됨";
+      conn.style.color = "var(--ok)";
+      log("srv", `인증 성공 (session ${msg.session_id.slice(0, 8)}…)`);
+      setReady(true);
+      break;
+    case "state":
+      if (msg.state === "recognizing") setOled("Recognizing");
+      else if (msg.state === "thinking") setOled("Thinking");
+      else if (msg.state === "ready" && !ttsChunks.length) setReady(true);
+      break;
+    case "transcript":
+      log("user", `나: ${msg.text}`);
+      break;
+    case "tts_start":
+      ttsChunks = [];
+      break;
+    case "tts_end": {
+      const latency = Math.round(performance.now() - endSentAt);
+      log("srv", `TTS 수신 ${ttsChunks.reduce((n, c) => n + c.byteLength, 0)} bytes (지연 ${latency}ms)`);
+      playTts();
+      break;
+    }
+    case "error":
+      log("err", `오류: ${msg.code} — ${msg.message}`);
+      setOled("Error", "error");
+      setTimeout(() => setReady(true), 1200);
+      break;
+  }
+}
+
+// ── 녹음 (푸시 투 토크) ─────────────────────────────────
+async function initAudio() {
+  if (audioCtx) return;
+  mediaStream = await navigator.mediaDevices.getUserMedia({
+    audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+  });
+  try {
+    audioCtx = new AudioContext({ sampleRate: SAMPLE_RATE });
+  } catch {
+    audioCtx = new AudioContext(); // 16kHz 미지원 브라우저: 수동 다운샘플
+  }
+  sourceNode = audioCtx.createMediaStreamSource(mediaStream);
+  processor = audioCtx.createScriptProcessor(4096, 1, 1);
+  processor.onaudioprocess = (e) => {
+    if (!recording || !ws || ws.readyState !== WebSocket.OPEN) return;
+    const f32 = downsample(e.inputBuffer.getChannelData(0), audioCtx.sampleRate, SAMPLE_RATE);
+    const i16 = new Int16Array(f32.length);
+    for (let i = 0; i < f32.length; i++) {
+      i16[i] = Math.max(-32768, Math.min(32767, Math.round(f32[i] * 32767)));
+    }
+    ws.send(i16.buffer);
+    sentBytes += i16.buffer.byteLength;
+    recChunks.push(i16);
+  };
+  sourceNode.connect(processor);
+  processor.connect(audioCtx.destination); // 일부 브라우저는 연결해야 콜백이 돈다
+}
+
+function downsample(f32, fromRate, toRate) {
+  if (fromRate === toRate) return f32;
+  const ratio = fromRate / toRate;
+  const out = new Float32Array(Math.floor(f32.length / ratio));
+  for (let i = 0; i < out.length; i++) out[i] = f32[Math.floor(i * ratio)];
+  return out;
+}
+
+async function startRecording() {
+  if (recording || talkBtn.disabled || !ws || ws.readyState !== WebSocket.OPEN) return;
+  try {
+    await initAudio();
+  } catch (err) {
+    log("err", `마이크 사용 불가: ${err.message}`);
+    return;
+  }
+  if (audioCtx.state === "suspended") await audioCtx.resume();
+  requestId = crypto.randomUUID();
+  sentBytes = 0;
+  recChunks = [];
+  document.getElementById("recRow").style.display = "none";
+  ws.send(JSON.stringify({
+    type: "audio_start", request_id: requestId,
+    format: "pcm_s16le", sample_rate: SAMPLE_RATE, channels: 1,
+  }));
+  recording = true;
+  talkBtn.classList.add("recording");
+  setOled("Listening", "listening");
+}
+
+function stopRecording(send = true) {
+  if (!recording) return;
+  recording = false;
+  talkBtn.classList.remove("recording");
+  if (send && ws && ws.readyState === WebSocket.OPEN) {
+    endSentAt = performance.now();
+    ws.send(JSON.stringify({ type: "audio_end", request_id: requestId }));
+    log("user", `녹음 전송 ${(sentBytes / (SAMPLE_RATE * 2)).toFixed(1)}초 (${sentBytes} bytes)`);
+    talkBtn.disabled = true; // 응답 완료(Ready)까지 재녹음 방지
+  }
+  if (recChunks.length) {
+    const secs = (sentBytes / (SAMPLE_RATE * 2)).toFixed(1);
+    document.getElementById("playRec").textContent = `▶ 내 녹음 듣기 (${secs}초)`;
+    document.getElementById("recRow").style.display = "flex";
+  }
+}
+
+// ── 보낸 음성 확인 (재생 / WAV 저장) ────────────────────
+function recordedPcm() {
+  const total = recChunks.reduce((n, c) => n + c.length, 0);
+  const i16 = new Int16Array(total);
+  let offset = 0;
+  for (const chunk of recChunks) { i16.set(chunk, offset); offset += chunk.length; }
+  return i16;
+}
+
+function playRecording() {
+  const i16 = recordedPcm();
+  if (!i16.length || !audioCtx) return;
+  const buf = audioCtx.createBuffer(1, i16.length, SAMPLE_RATE);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < i16.length; i++) ch[i] = i16[i] / 32768;
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  src.connect(audioCtx.destination);
+  src.start();
+}
+
+function toWavBlob(i16, sampleRate) {
+  const header = new ArrayBuffer(44);
+  const v = new DataView(header);
+  const dataSize = i16.length * 2;
+  const writeStr = (pos, s) => { for (let i = 0; i < s.length; i++) v.setUint8(pos + i, s.charCodeAt(i)); };
+  writeStr(0, "RIFF");
+  v.setUint32(4, 36 + dataSize, true);
+  writeStr(8, "WAVE");
+  writeStr(12, "fmt ");
+  v.setUint32(16, 16, true);        // fmt chunk size
+  v.setUint16(20, 1, true);         // PCM
+  v.setUint16(22, 1, true);         // mono
+  v.setUint32(24, sampleRate, true);
+  v.setUint32(28, sampleRate * 2, true); // byte rate
+  v.setUint16(32, 2, true);         // block align
+  v.setUint16(34, 16, true);        // bits per sample
+  writeStr(36, "data");
+  v.setUint32(40, dataSize, true);
+  return new Blob([header, i16.buffer], { type: "audio/wav" });
+}
+
+function saveRecording() {
+  const i16 = recordedPcm();
+  if (!i16.length) return;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(toWavBlob(i16, SAMPLE_RATE));
+  a.download = `mic-${new Date().toISOString().replace(/[:.]/g, "-")}.wav`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ── TTS 재생 ───────────────────────────────────────────
+function playTts() {
+  const total = ttsChunks.reduce((n, c) => n + c.byteLength, 0);
+  if (!total || !audioCtx) { setReady(true); return; }
+  const i16 = new Int16Array(total / 2);
+  let offset = 0;
+  for (const chunk of ttsChunks) {
+    i16.set(new Int16Array(chunk), offset);
+    offset += chunk.byteLength / 2;
+  }
+  ttsChunks = [];
+  const buf = audioCtx.createBuffer(1, i16.length, SAMPLE_RATE);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < i16.length; i++) ch[i] = i16[i] / 32768;
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  src.connect(audioCtx.destination);
+  setOled("Speaking");
+  src.onended = () => setReady(true);
+  src.start();
+}
+
+// ── 입력 바인딩 ────────────────────────────────────────
+connectBtn.addEventListener("click", connect);
+document.getElementById("playRec").addEventListener("click", playRecording);
+document.getElementById("saveRec").addEventListener("click", saveRecording);
+talkBtn.addEventListener("pointerdown", startRecording);
+talkBtn.addEventListener("pointerup", () => stopRecording());
+talkBtn.addEventListener("pointerleave", () => stopRecording());
+document.addEventListener("keydown", (e) => {
+  if (e.code === "Space" && !e.repeat && document.activeElement.tagName !== "INPUT") {
+    e.preventDefault();
+    startRecording();
+  }
+});
+document.addEventListener("keyup", (e) => {
+  if (e.code === "Space") { e.preventDefault(); stopRecording(); }
+});
+
+setOled("Booting");
+connect();
+</script>
+</body>
+</html>
