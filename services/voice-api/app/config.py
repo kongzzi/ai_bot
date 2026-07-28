@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     # 운영에서는 해시 저장 + Key Vault로 전환한다 (기획서 18.3).
     device_tokens: str = "device-001:dev-token-001"
 
+    # STT 공급자: mock | whisper (azure는 Phase 4에서 추가)
+    stt_provider: str = "mock"
+    whisper_model: str = "small"
+    whisper_language: str = "ko"
+    whisper_compute_type: str = "int8"
+
     @property
     def max_audio_bytes(self) -> int:
         return self.sample_rate * self.bytes_per_sample * self.max_audio_seconds

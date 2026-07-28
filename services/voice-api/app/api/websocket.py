@@ -7,7 +7,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.audio.buffer import AudioBuffer
 from app.audio.validation import validate_frame
-from app.clients.mocks import MockLLM, MockSTT, MockTTS
+from app.clients.factory import get_llm, get_stt, get_tts
 from app.config import Settings, get_settings
 from app.core.errors import DeviceError, ErrorCode
 from app.core.security import parse_device_tokens, verify_device
@@ -30,7 +30,7 @@ session_manager = SessionManager()
 
 def build_pipeline() -> VoicePipeline:
     settings = get_settings()
-    return VoicePipeline(MockSTT(), MockLLM(), MockTTS(), frame_bytes=settings.frame_bytes)
+    return VoicePipeline(get_stt(), get_llm(), get_tts(), frame_bytes=settings.frame_bytes)
 
 
 @router.websocket("/ws/audio")

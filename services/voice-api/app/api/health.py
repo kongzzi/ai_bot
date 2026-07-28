@@ -11,7 +11,7 @@ async def health() -> dict:
     return {
         "status": "ok",
         "version": settings.app_version,
-        "stt": "mock",
+        "stt": settings.stt_provider,
         "llm": "mock",
         "tts": "mock",
     }

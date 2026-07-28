@@ -48,7 +48,22 @@ def save_wav(path: str, pcm: bytes) -> None:
         wav.writeframes(pcm)
 
 
-async def run(url: str, device_id: str, token: str, seconds: float, realtime: bool, out: str) -> int:
+def load_wav_pcm(path: str) -> bytes:
+    """16kHz mono 16-bit wav에서 PCM을 읽는다 (실제 음성으로 STT 테스트용)."""
+    with wave.open(path, "rb") as wav:
+        if (wav.getframerate(), wav.getnchannels(), wav.getsampwidth()) != (SAMPLE_RATE, 1, 2):
+            raise SystemExit(
+                f"{path}: 16kHz mono 16-bit wav가 아닙니다 "
+                f"(rate={wav.getframerate()}, ch={wav.getnchannels()}, width={wav.getsampwidth()}). "
+                f"변환: afconvert -f WAVE -d LEI16@16000 -c 1 in.wav out.wav"
+            )
+        return wav.readframes(wav.getnframes())
+
+
+async def run(
+    url: str, device_id: str, token: str, seconds: float, realtime: bool, out: str,
+    wav: str | None = None,
+) -> int:
     print(f"connecting: {url}")
     async with websockets.connect(url) as ws:
         # 1. 인증
@@ -64,9 +79,10 @@ async def run(url: str, device_id: str, token: str, seconds: float, realtime: bo
             return 1
         print(f"auth ok, session={reply['session_id']}")
 
-        # 2. 녹음 전송 (사인파를 발화로 가정)
+        # 2. 녹음 전송 (--wav가 있으면 실제 음성, 없으면 사인파)
         request_id = str(uuid.uuid4())
-        pcm = sine_wave_pcm(220, seconds)
+        pcm = load_wav_pcm(wav) if wav else sine_wave_pcm(220, seconds)
+        seconds = len(pcm) / (SAMPLE_RATE * 2)
         await ws.send(json.dumps({
             "type": "audio_start",
             "request_id": request_id,
@@ -118,11 +134,14 @@ def main() -> None:
     parser.add_argument("--url", default="ws://localhost:8000/ws/audio")
     parser.add_argument("--device-id", default="device-001")
     parser.add_argument("--token", default="dev-token-001")
-    parser.add_argument("--seconds", type=float, default=2.0, help="발화 길이")
+    parser.add_argument("--seconds", type=float, default=2.0, help="사인파 발화 길이")
     parser.add_argument("--realtime", action="store_true", help="20ms 프레임 페이싱 사용")
     parser.add_argument("--out", default="tts_output.wav")
+    parser.add_argument("--wav", default=None, help="사인파 대신 보낼 16kHz mono 16-bit wav 파일")
     args = parser.parse_args()
-    sys.exit(asyncio.run(run(args.url, args.device_id, args.token, args.seconds, args.realtime, args.out)))
+    sys.exit(asyncio.run(run(
+        args.url, args.device_id, args.token, args.seconds, args.realtime, args.out, args.wav
+    )))
 
 
 if __name__ == "__main__":

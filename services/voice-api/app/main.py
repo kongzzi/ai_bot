@@ -17,6 +17,12 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(websocket.router)
 
+    if settings.stt_provider != "mock":
+        # 첫 요청이 모델 로딩을 기다리지 않도록 기동 시 선로딩
+        from app.clients.factory import get_stt
+
+        get_stt()
+
     if settings.app_env == "development":
         # 개발 전용 브라우저 테스트 콘솔. 운영 빌드에는 노출하지 않는다.
         @app.get("/test", include_in_schema=False)

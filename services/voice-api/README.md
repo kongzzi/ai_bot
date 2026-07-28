@@ -1,7 +1,24 @@
 # voice-api
 
 음성인식 캐릭터 AI Bot의 Voice Gateway (기획서 8장).
-현재 **Phase 3**: STT/LLM/TTS는 Mock이며, Phase 4에서 Azure Speech / AI Foundry / OpenClaw로 교체한다.
+현재 **Phase 3+**: LLM/TTS는 Mock, STT는 mock 또는 **faster-whisper(로컬 실인식)** 선택 가능.
+Phase 4에서 Azure Speech / AI Foundry / OpenClaw로 교체한다.
+
+## STT 공급자 선택
+
+Azure 키 없이 실제 한국어 인식을 쓰려면 faster-whisper를 켠다:
+
+```bash
+pip install -e ".[whisper]"          # 최초 1회
+echo "STT_PROVIDER=whisper" >> .env  # 또는 환경변수로 지정
+```
+
+- 모델은 첫 기동 시 HuggingFace에서 자동 다운로드(small ≈ 500MB) 후 캐시됨
+- 기본값: `WHISPER_MODEL=small`, `WHISPER_LANGUAGE=ko`, `WHISPER_COMPUTE_TYPE=int8`
+- 정확도가 아쉬우면 `WHISPER_MODEL=medium` (2~3배 느림), 속도가 급하면 `base`
+- 무음/비음성 입력은 VAD가 걸러 `NO_SPEECH` 오류 코드로 응답
+- 검증 결과: 3.9초 한국어 발화 → 완벽 인식, 왕복 지연 약 2.2초 (M계열 CPU, small/int8)
+- `/health`의 `stt` 필드로 현재 공급자 확인 가능
 
 ## 실행
 

@@ -50,7 +50,8 @@
 
 ## Phase 4. Azure AI 연동 (Mock을 실제 서비스로 교체)
 
-- [ ] Azure Speech STT 연동 (ko-KR, PCM 16kHz 입력)
+- [x] (선행) faster-whisper 로컬 STT 어댑터 — Azure 키 없이 실인식 (`STT_PROVIDER=whisper`, 2026-07-29)
+- [ ] Azure Speech STT 연동 (ko-KR, PCM 16kHz 입력) — Whisper와 공급자 전환 방식
 - [ ] Azure AI Foundry LLM 호출 연동
 - [ ] OpenClaw 연동: 캐릭터 프롬프트, 세션, 응답 가드레일
 - [ ] Azure Speech TTS 연동 (ESP32가 바로 재생 가능한 PCM 16kHz mono 출력)

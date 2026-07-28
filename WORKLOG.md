@@ -4,6 +4,35 @@
 
 ---
 
+## 2026-07-29 — faster-whisper 로컬 STT 어댑터 (Phase 4 선행)
+
+### 배경
+
+Azure Speech 키가 아직 없어 오픈소스 STT를 먼저 붙이기로 결정. 한국어 정확도와
+16kHz mono 입력 호환성(파이프라인 규격과 동일) 기준으로 **faster-whisper** 선택.
+
+### 완료한 작업
+
+- **`STT_PROVIDER` 설정 도입** — `mock | whisper` 전환 ([config.py](services/voice-api/app/config.py), `.env` 한 줄로 변경)
+- **[WhisperSTT](services/voice-api/app/clients/whisper_stt.py)** — faster-whisper 어댑터. CPU 블로킹 디코딩을 `asyncio.to_thread`로 격리, VAD 필터 적용, 인식 시간 로깅
+- **[factory.py](services/voice-api/app/clients/factory.py)** — 설정 기반 클라이언트 선택 (`lru_cache`로 모델 1회 로딩), 서버 기동 시 선로딩
+- **`NO_SPEECH` 오류 코드 추가** — 빈 인식 결과(무음/비음성)를 장치에 명확히 통보 (기획서 9.4)
+- **시뮬레이터 `--wav` 옵션** — 사인파 대신 실제 음성 파일(16kHz mono wav)로 STT 테스트 가능
+- 의존성은 optional extra로 분리: `pip install -e ".[whisper]"` (미설치 시 mock 동작에 영향 없음)
+
+### 검증 결과 (WHISPER_MODEL=small, int8, CPU)
+
+- `say -v Yuna`로 만든 3.9초 한국어 발화 → **"안녕하세요 만나서 반가워요 오늘 날씨가 참 좋네요" 완벽 인식**, 왕복 지연 2.2초
+- 사인파 입력 → VAD가 걸러내고 `NO_SPEECH` 오류 응답 확인
+- pytest 13개 통과 (factory 기본값 mock 테스트 추가)
+
+### 메모
+
+- Whisper는 Mac 전용 가속(mlx 등) 대신 CPU 기반 faster-whisper 채택 → Phase 5 Docker(Linux)에서도 동일 동작
+- Azure Speech 키가 생기면 `AzureSpeechSTT` 어댑터를 같은 Protocol로 추가하고 `STT_PROVIDER=azure`로 전환하면 됨
+
+---
+
 ## 2026-07-26 — 기획 분석 및 Phase 3 로컬 서버 구축
 
 ### 상황

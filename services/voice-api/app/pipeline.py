@@ -43,6 +43,8 @@ class VoicePipeline:
         except Exception as exc:
             logger.exception("STT failed request=%s", request_id)
             raise DeviceError(ErrorCode.STT_FAILED, "Speech recognition failed") from exc
+        if not transcript.strip():
+            raise DeviceError(ErrorCode.NO_SPEECH, "No speech recognized")
         await websocket.send_json(transcript_message(request_id, transcript))
 
         await websocket.send_json(state_message(request_id, "thinking"))
