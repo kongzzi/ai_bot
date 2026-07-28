@@ -26,6 +26,19 @@ Azure Speech 키가 아직 없어 오픈소스 STT를 먼저 붙이기로 결정
 - 사인파 입력 → VAD가 걸러내고 `NO_SPEECH` 오류 응답 확인
 - pytest 13개 통과 (factory 기본값 mock 테스트 추가)
 
+### 사용자 실기 검증 (웹 콘솔 + 마이크)
+
+- `services/voice-api/.env` 생성 (`STT_PROVIDER=whisper`, gitignore 대상) — 이후 서버 기동만으로 Whisper 모드
+- 웹 콘솔에서 실제 마이크 발화 **"안녕"(1.8초, 57,344B) → transcript 정확 인식, 왕복 지연 1,012ms**
+- 클라이언트 로그와 서버 로그(`pcm_in=57344B pcm_out=47360B`) 일치 확인
+
+### 문답 기록 (동작 관련 궁금증 정리)
+
+- **`GET /favicon.ico 404`**: 브라우저가 탭 아이콘을 자동 요청하는 것. 음성 통신과 무관하며 무해.
+  없애려면 test.html `<head>`에 `<link rel="icon" href="data:,">` 추가 (현재 미적용 — 보류 결정)
+- **60초 후 timeout/disconnected**: 기획서 8.5의 WebSocket idle 60초 규칙을 구현한 의도된 동작.
+  실기기 펌웨어는 Phase 2에서 자동 재연결 구현 예정. 웹 콘솔 자동 재연결은 보류 결정 (새로고침으로 충분)
+
 ### 메모
 
 - Whisper는 Mac 전용 가속(mlx 등) 대신 CPU 기반 faster-whisper 채택 → Phase 5 Docker(Linux)에서도 동일 동작

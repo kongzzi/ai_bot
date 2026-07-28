@@ -51,6 +51,7 @@
 ## Phase 4. Azure AI 연동 (Mock을 실제 서비스로 교체)
 
 - [x] (선행) faster-whisper 로컬 STT 어댑터 — Azure 키 없이 실인식 (`STT_PROVIDER=whisper`, 2026-07-29)
+- [x] (선행) 웹 콘솔에서 실발화 인식 검증 — 마이크 음성 "안녕" 정확 인식, 왕복 지연 약 1초 (2026-07-29)
 - [ ] Azure Speech STT 연동 (ko-KR, PCM 16kHz 입력) — Whisper와 공급자 전환 방식
 - [ ] Azure AI Foundry LLM 호출 연동
 - [ ] OpenClaw 연동: 캐릭터 프롬프트, 세션, 응답 가드레일
